@@ -95,47 +95,45 @@ function Resolve-NpxCmd {
 }
 
 function Install-AgentBrowser {
-    param([string]$BrowserDir, [string]$NpmExe, [string]$LogPrefix)
+    param([string]$NpmExe, [string]$LogPrefix)
 
-    if (-not (Test-Path $BrowserDir)) {
-        New-Item -ItemType Directory -Force -Path $BrowserDir | Out-Null
-    }
-    $pkgJson = "$BrowserDir\package.json"
-    if (-not (Test-Path $pkgJson)) {
-        '{"name":"hermes-browser-deps","version":"1.0.0","dependencies":{"agent-browser":"*"}}' | Out-File -FilePath $pkgJson -Encoding utf8 -NoNewline
+    # Use npm install -g --prefix to match the canonical ACP bootstrap approach
+    # (acp_adapter/bootstrap/bootstrap_browser_tools.ps1).  Windows npm global
+    # installs drop shims at the prefix root (not prefix/bin/), and
+    # browser_tool.py::_browser_candidate_path_dirs() already searches
+    # $HERMES_HOME/node/bin (POSIX) and $HERMES_HOME/node (Windows).
+    $nodePrefix = "$HermesHome\node"
+    if (-not (Test-Path $nodePrefix)) {
+        New-Item -ItemType Directory -Force -Path $nodePrefix | Out-Null
     }
 
-    Write-Info "Installing agent-browser to $BrowserDir..."
+    Write-Info "Installing agent-browser (npm -g --prefix $nodePrefix)..."
     $browserLog = "$env:TEMP\hermes-$LogPrefix-browser-$(Get-Random).log"
-    Push-Location $BrowserDir
-    try {
-        & $NpmExe install --silent *> $browserLog
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "agent-browser installed"
-            Remove-Item -Force $browserLog -ErrorAction SilentlyContinue
-        } else {
-            Write-Warn "agent-browser npm install failed (exit $LASTEXITCODE) -- see $browserLog"
-        }
+    & $NpmExe install -g --prefix $nodePrefix --silent "agent-browser@^0.26.0" "@askjo/camofox-browser@^1.5.2" *> $browserLog
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "agent-browser installed"
+        Remove-Item -Force $browserLog -ErrorAction SilentlyContinue
+    } else {
+        Write-Warn "agent-browser npm install failed (exit $LASTEXITCODE) -- see $browserLog"
+    }
 
-        $npxExe = Resolve-NpxCmd -NpmExe $NpmExe
-        if ($npxExe) {
-            Write-Info "Installing Playwright Chromium..."
-            $pwLog = "$env:TEMP\hermes-$LogPrefix-playwright-$(Get-Random).log"
-            & $npxExe playwright install chromium *> $pwLog
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Playwright Chromium installed"
-                Remove-Item -Force $pwLog -ErrorAction SilentlyContinue
-            } else {
-                Write-Warn "Playwright Chromium install failed (exit $LASTEXITCODE) -- see $pwLog"
-            }
+    # Prepend to current-process PATH so npx resolves from the prefix
+    $env:PATH = "$nodePrefix;$env:PATH"
+
+    $npxExe = Resolve-NpxCmd -NpmExe $NpmExe
+    if ($npxExe) {
+        Write-Info "Installing Playwright Chromium..."
+        $pwLog = "$env:TEMP\hermes-$LogPrefix-playwright-$(Get-Random).log"
+        & $npxExe playwright install chromium *> $pwLog
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Playwright Chromium installed"
+            Remove-Item -Force $pwLog -ErrorAction SilentlyContinue
         } else {
-            Write-Warn "npx not found -- skipping Playwright Chromium install."
-            Write-Info "Run manually: npx playwright install chromium"
+            Write-Warn "Playwright Chromium install failed (exit $LASTEXITCODE) -- see $pwLog"
         }
-    } catch {
-        Write-Warn "browser install error: $_"
-    } finally {
-        Pop-Location
+    } else {
+        Write-Warn "npx not found -- skipping Playwright Chromium install."
+        Write-Info "Run manually: npx playwright install chromium"
     }
 }
 
@@ -1633,7 +1631,7 @@ function Invoke-EnsureMode {
                         break
                     }
 
-                    Install-AgentBrowser -BrowserDir "$HermesHome\agent-browser" -NpmExe $npmExe -LogPrefix "ensure"
+                    Install-AgentBrowser -NpmExe $npmExe -LogPrefix "ensure"
                 }
             }
             "ripgrep" {
@@ -1670,7 +1668,7 @@ function Invoke-PostInstallMode {
     if ($script:HasNode) {
         $npmExe = Resolve-NpmCmd
         if ($npmExe) {
-            Install-AgentBrowser -BrowserDir "$HermesHome\agent-browser" -NpmExe $npmExe -LogPrefix "postinstall"
+            Install-AgentBrowser -NpmExe $npmExe -LogPrefix "postinstall"
         } else {
             Write-Warn "npm not found -- skipping Playwright Chromium install."
         }

@@ -56,10 +56,20 @@ def _has_system_browser() -> bool:
 
 def _has_hermes_agent_browser() -> bool:
     from hermes_constants import get_hermes_home
-    bin_dir = get_hermes_home() / "node_modules" / ".bin"
+    home = get_hermes_home()
+    bin_name = "agent-browser.cmd" if _IS_WINDOWS else "agent-browser"
+    # Canonical: npm -g --prefix ~/.hermes/node (ACP bootstrap + install.ps1)
+    # Windows npm global puts shims at prefix root; POSIX at prefix/bin/
     if _IS_WINDOWS:
-        return (bin_dir / "agent-browser.cmd").is_file()
-    return (bin_dir / "agent-browser").is_file()
+        if (home / "node" / bin_name).is_file():
+            return True
+    else:
+        if (home / "node" / "bin" / bin_name).is_file():
+            return True
+    # Legacy: install.sh uses npm --prefix ~/.hermes → node_modules/.bin/
+    if (home / "node_modules" / ".bin" / bin_name).is_file():
+        return True
+    return False
 
 
 def _find_install_script(
@@ -77,19 +87,16 @@ def _find_install_script(
         repo_root = package_dir.parent
 
     if _IS_WINDOWS:
-        preferred = ("install.ps1", "powershell")
-        fallback = ("install.sh", "bash")
+        script_name, shell = "install.ps1", "powershell"
     else:
-        preferred = ("install.sh", "bash")
-        fallback = ("install.ps1", "powershell")
+        script_name, shell = "install.sh", "bash"
 
-    for script_name, shell in (preferred, fallback):
-        bundled = package_dir / "scripts" / script_name
-        if bundled.is_file():
-            return bundled, shell
-        repo = repo_root / "scripts" / script_name
-        if repo.is_file():
-            return repo, shell
+    bundled = package_dir / "scripts" / script_name
+    if bundled.is_file():
+        return bundled, shell
+    repo = repo_root / "scripts" / script_name
+    if repo.is_file():
+        return repo, shell
 
     return None, None
 

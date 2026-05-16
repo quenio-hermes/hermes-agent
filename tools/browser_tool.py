@@ -1713,6 +1713,14 @@ def _find_agent_browser() -> str:
             if not recheck:
                 hermes_nm = str(get_hermes_home() / "node_modules" / ".bin")
                 recheck = shutil.which("agent-browser", path=hermes_nm)
+            if not recheck:
+                # npm -g --prefix ~/.hermes/node: Windows puts shims at root, POSIX at bin/
+                node_prefix = get_hermes_home() / "node"
+                for subdir in ("", "bin"):
+                    candidate = str(node_prefix / subdir) if subdir else str(node_prefix)
+                    recheck = shutil.which("agent-browser", path=candidate)
+                    if recheck:
+                        break
             if recheck:
                 _cached_agent_browser = recheck
                 _agent_browser_resolved = True

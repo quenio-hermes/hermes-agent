@@ -92,6 +92,18 @@ def test_find_install_script_returns_none_when_missing(tmp_path):
         assert result == (None, None)
 
 
+def test_find_install_script_no_cross_platform_fallback(tmp_path):
+    """On POSIX, having only install.ps1 should return (None, None)."""
+    scripts_dir = tmp_path / "hermes_cli" / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "install.ps1").write_text("# fake")
+    from hermes_cli.dep_ensure import _find_install_script
+    with patch("hermes_cli.dep_ensure._IS_WINDOWS", False):
+        path, shell = _find_install_script(package_dir=tmp_path / "hermes_cli", repo_root=tmp_path)
+        assert path is None
+        assert shell is None
+
+
 def test_has_system_browser_checks_windows_names():
     from hermes_cli.dep_ensure import _has_system_browser
     with patch("hermes_cli.dep_ensure._IS_WINDOWS", True), \
@@ -120,6 +132,28 @@ def test_has_hermes_agent_browser_windows_path(tmp_path):
 
 def test_has_hermes_agent_browser_posix_path(tmp_path):
     bin_dir = tmp_path / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "agent-browser").write_text("#!/bin/sh")
+    from hermes_cli.dep_ensure import _has_hermes_agent_browser
+    with patch("hermes_cli.dep_ensure._IS_WINDOWS", False), \
+         patch("hermes_constants.get_hermes_home", return_value=tmp_path):
+        assert _has_hermes_agent_browser() is True
+
+
+def test_has_hermes_agent_browser_windows_node_prefix(tmp_path):
+    """Windows: agent-browser.cmd at node/ root (npm -g --prefix)."""
+    node_dir = tmp_path / "node"
+    node_dir.mkdir()
+    (node_dir / "agent-browser.cmd").write_text("@echo off")
+    from hermes_cli.dep_ensure import _has_hermes_agent_browser
+    with patch("hermes_cli.dep_ensure._IS_WINDOWS", True), \
+         patch("hermes_constants.get_hermes_home", return_value=tmp_path):
+        assert _has_hermes_agent_browser() is True
+
+
+def test_has_hermes_agent_browser_posix_node_prefix(tmp_path):
+    """POSIX: agent-browser at node/bin/ (npm -g --prefix)."""
+    bin_dir = tmp_path / "node" / "bin"
     bin_dir.mkdir(parents=True)
     (bin_dir / "agent-browser").write_text("#!/bin/sh")
     from hermes_cli.dep_ensure import _has_hermes_agent_browser
