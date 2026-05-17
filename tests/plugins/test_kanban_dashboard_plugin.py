@@ -1794,3 +1794,14 @@ def test_dashboard_failed_card_highlight_class_exists():
     assert "hermes-kanban-card--failed" in js
     assert "hermes-kanban-card--failed" in css
     assert "failedIds" in js
+
+
+def test_dashboard_content_surfaces_opt_out_of_display_font():
+    """Freeform Kanban content must not inherit the uppercase-looking Mondwest display font."""
+    repo_root = Path(__file__).resolve().parents[2]
+    css = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "style.css").read_text()
+
+    assert "font-family: var(--theme-font-sans" in css
+    assert ".hermes-kanban-md" in css
+    assert ".hermes-kanban-log" in css
+    assert ".hermes-kanban-comment" in css

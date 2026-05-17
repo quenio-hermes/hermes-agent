@@ -8342,6 +8342,7 @@ class GatewayRunner:
         # Set session title if provided with /new <title>
         _title_arg = event.get_command_args().strip()
         _title_note = ""
+        sanitized = None
         if _title_arg and self._session_db and new_entry:
             from hermes_state import SessionDB
             try:
@@ -8372,6 +8373,13 @@ class GatewayRunner:
                 self._record_telegram_topic_binding(source, new_entry)
             except Exception:
                 logger.debug("Failed to rebind Telegram topic after /new", exc_info=True)
+
+        if _title_arg and sanitized and new_entry is not None:
+            await self._rename_telegram_topic_for_session_title(
+                source,
+                new_entry.session_id,
+                sanitized,
+            )
 
         # Fire plugin on_session_reset hook (new session guaranteed to exist)
         try:
@@ -11727,6 +11735,11 @@ class GatewayRunner:
             # Set the title
             try:
                 if self._session_db.set_session_title(session_id, sanitized):
+                    await self._rename_telegram_topic_for_session_title(
+                        source,
+                        session_id,
+                        sanitized,
+                    )
                     return t("gateway.title.set_to", title=sanitized)
                 else:
                     return t("gateway.title.not_found")

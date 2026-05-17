@@ -16,13 +16,14 @@ from gateway.session import SessionSource
 
 
 def _make_event(text="/title", platform=Platform.TELEGRAM,
-                user_id="12345", chat_id="67890"):
+                user_id="12345", chat_id="67890", thread_id=None):
     """Build a MessageEvent for testing."""
     source = SessionSource(
         platform=platform,
         user_id=user_id,
         chat_id=chat_id,
         user_name="testuser",
+        thread_id=thread_id,
     )
     return MessageEvent(text=text, source=source)
 
@@ -69,6 +70,58 @@ class TestHandleTitleCommand:
 
         # Verify in DB
         assert db.get_session_title("test_session_123") == "My Research Project"
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_set_title_renames_telegram_dm_topic_lane(self, tmp_path):
+        """Setting /title in a Telegram DM topic lane also renames the Telegram topic."""
+        from hermes_state import SessionDB
+
+        db = SessionDB(db_path=tmp_path / "state.db")
+        db.create_session("test_session_123", "telegram")
+
+        runner = _make_runner(session_db=db)
+        runner._telegram_topic_mode_enabled = lambda source: True
+        adapter = MagicMock()
+        adapter.rename_dm_topic = AsyncMock()
+        runner.adapters[Platform.TELEGRAM] = adapter
+
+        event = _make_event(text="/title Visible Topic Name", thread_id="42")
+        result = await runner._handle_title_command(event)
+
+        assert "Visible Topic Name" in result
+        assert db.get_session_title("test_session_123") == "Visible Topic Name"
+        adapter.rename_dm_topic.assert_awaited_once_with(
+            chat_id="67890",
+            thread_id="42",
+            name="Visible Topic Name",
+        )
+        db.close()
+
+    @pytest.mark.asyncio
+    async def test_set_title_does_not_rename_non_topic_platform(self, tmp_path):
+        """Non-Telegram /title updates keep their existing behavior."""
+        from hermes_state import SessionDB
+
+        db = SessionDB(db_path=tmp_path / "state.db")
+        db.create_session("test_session_123", "discord")
+
+        runner = _make_runner(session_db=db)
+        runner._telegram_topic_mode_enabled = lambda source: True
+        adapter = MagicMock()
+        adapter.rename_dm_topic = AsyncMock()
+        runner.adapters[Platform.TELEGRAM] = adapter
+
+        event = _make_event(
+            text="/title Discord Session",
+            platform=Platform.DISCORD,
+            thread_id="42",
+        )
+        result = await runner._handle_title_command(event)
+
+        assert "Discord Session" in result
+        assert db.get_session_title("test_session_123") == "Discord Session"
+        adapter.rename_dm_topic.assert_not_awaited()
         db.close()
 
     @pytest.mark.asyncio
@@ -266,13 +319,21 @@ class TestResetCommandWithTitle:
         runner._agent_cache_lock = None
         runner._is_user_authorized = lambda _source: True
         runner._format_session_info = lambda: ""
+        runner._telegram_topic_mode_enabled = lambda _source: True
+        runner._session_db.get_telegram_topic_binding.return_value = {"session_id": "sess-new"}
+        adapter.rename_dm_topic = AsyncMock()
 
-        event = _make_event(text="/new Custom Name")
+        event = _make_event(text="/new Custom Name", thread_id="42")
         result = await runner._handle_reset_command(event)
 
         runner.session_store.reset_session.assert_called_once()
         runner._session_db.set_session_title.assert_called_once_with(
             "sess-new", "Custom Name"
+        )
+        adapter.rename_dm_topic.assert_awaited_once_with(
+            chat_id="67890",
+            thread_id="42",
+            name="Custom Name",
         )
         # Header reflects the applied title
         assert "Custom Name" in str(result)
