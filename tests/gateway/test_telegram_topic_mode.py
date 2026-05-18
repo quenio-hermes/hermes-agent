@@ -267,6 +267,69 @@ async def test_managed_topic_binding_reuses_restored_session_over_static_lane_se
 
 
 @pytest.mark.asyncio
+async def test_telegram_topic_binding_follows_context_compression_session_split(
+    tmp_path, monkeypatch
+):
+    """Regression: compression must rebind the topic to the new compacted session.
+
+    If the topic binding keeps pointing at the pre-compression session, the
+    next message switches back to the oversized transcript and compresses again.
+    """
+    import gateway.run as gateway_run
+
+    session_db = SessionDB(db_path=tmp_path / "state.db")
+    session_db.enable_telegram_topic_mode(chat_id="208214988", user_id="208214988")
+    session_db.create_session(
+        session_id="old-large-session",
+        source="telegram",
+        user_id="208214988",
+    )
+    session_db.create_session(
+        session_id="new-compressed-session",
+        source="telegram",
+        user_id="208214988",
+    )
+    topic_key = build_session_key(_make_source(thread_id="17585"))
+    session_db.bind_telegram_topic(
+        chat_id="208214988",
+        thread_id="17585",
+        user_id="208214988",
+        session_key=topic_key,
+        session_id="old-large-session",
+        managed_mode="auto",
+    )
+    runner = _make_runner(session_db=session_db)
+    runner._telegram_topic_mode_enabled = lambda source: True
+    runner._clear_session_env = lambda _tokens: None
+
+    async def fake_run_agent(*args, **kwargs):
+        assert kwargs.get("session_id") == "old-large-session"
+        return {
+            "final_response": "compressed response",
+            "session_id": "new-compressed-session",
+            "messages": [
+                {"role": "user", "content": "summary"},
+                {"role": "assistant", "content": "compressed response"},
+            ],
+            "history_offset": 0,
+            "last_prompt_tokens": 1234,
+            "api_calls": 1,
+        }
+
+    runner._run_agent = AsyncMock(side_effect=fake_run_agent)
+
+    monkeypatch.setattr(
+        gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"}
+    )
+
+    result = await runner._handle_message(_make_event("continue", thread_id="17585"))
+
+    assert result == "compressed response"
+    binding = session_db.get_telegram_topic_binding(chat_id="208214988", thread_id="17585")
+    assert binding["session_id"] == "new-compressed-session"
+
+
+@pytest.mark.asyncio
 async def test_telegram_group_prompt_is_not_topic_lobby_even_when_dm_topic_mode_enabled(
     tmp_path, monkeypatch
 ):
