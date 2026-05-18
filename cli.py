@@ -13847,6 +13847,28 @@ class HermesCLI:
 # Main Entry Point
 # ============================================================================
 
+def _should_use_worktree(
+    *,
+    worktree: bool = False,
+    w: bool = False,
+    config_worktree: bool = False,
+) -> bool:
+    """Return whether this CLI process should create an isolated git worktree.
+
+    Explicit CLI flags always win.  The config-level ``worktree: true`` default
+    is intentionally ignored for Kanban worker processes: the dispatcher has
+    already resolved the task workspace and starts the worker with
+    ``cwd=$HERMES_KANBAN_WORKSPACE``.  Applying a profile's global worktree
+    default on top of a plain ``dir:`` workspace can make the worker exit during
+    startup before it can call ``kanban_complete``/``kanban_block``.
+    """
+    if worktree or w:
+        return True
+    if os.environ.get("HERMES_KANBAN_TASK"):
+        return False
+    return bool(config_worktree)
+
+
 def main(
     query: str = None,
     q: str = None,
@@ -13933,7 +13955,11 @@ def main(
         # ── Git worktree isolation (#652) ──
         # Create an isolated worktree so this agent instance doesn't collide
         # with other agents working on the same repo.
-        use_worktree = worktree or w or CLI_CONFIG.get("worktree", False)
+        use_worktree = _should_use_worktree(
+            worktree=bool(worktree),
+            w=bool(w),
+            config_worktree=bool(CLI_CONFIG.get("worktree", False)),
+        )
         wt_info = None
         if use_worktree:
             # Prune stale worktrees from crashed/killed sessions

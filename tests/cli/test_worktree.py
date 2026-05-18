@@ -630,37 +630,41 @@ class TestEdgeCases:
 class TestCLIFlagLogic:
     """Test the flag/config OR logic from main()."""
 
+    def _should_use_worktree(self, *, worktree=False, w=False, config_worktree=False):
+        """Call the production helper while keeping the import localized."""
+        from cli import _should_use_worktree
+
+        return _should_use_worktree(
+            worktree=worktree,
+            w=w,
+            config_worktree=config_worktree,
+        )
+
     def test_worktree_flag_triggers(self):
         """--worktree flag should trigger worktree creation."""
-        worktree = True
-        w = False
-        config_worktree = False
-        use_worktree = worktree or w or config_worktree
-        assert use_worktree
+        assert self._should_use_worktree(worktree=True)
 
     def test_w_flag_triggers(self):
         """-w flag should trigger worktree creation."""
-        worktree = False
-        w = True
-        config_worktree = False
-        use_worktree = worktree or w or config_worktree
-        assert use_worktree
+        assert self._should_use_worktree(w=True)
 
     def test_config_triggers(self):
         """worktree: true in config should trigger worktree creation."""
-        worktree = False
-        w = False
-        config_worktree = True
-        use_worktree = worktree or w or config_worktree
-        assert use_worktree
+        assert self._should_use_worktree(config_worktree=True)
+
+    def test_kanban_worker_ignores_config_worktree_default(self, monkeypatch):
+        """Kanban workers use dispatcher-resolved workspace, not config worktree default."""
+        monkeypatch.setenv("HERMES_KANBAN_TASK", "t_example")
+        assert not self._should_use_worktree(config_worktree=True)
+
+    def test_kanban_worker_honors_explicit_worktree_flag(self, monkeypatch):
+        """Explicit -w/--worktree still wins for unusual manual worker launches."""
+        monkeypatch.setenv("HERMES_KANBAN_TASK", "t_example")
+        assert self._should_use_worktree(worktree=True, config_worktree=True)
 
     def test_none_set_no_trigger(self):
         """No flags and no config should not trigger."""
-        worktree = False
-        w = False
-        config_worktree = False
-        use_worktree = worktree or w or config_worktree
-        assert not use_worktree
+        assert not self._should_use_worktree()
 
 
 class TestTerminalCWDIntegration:
